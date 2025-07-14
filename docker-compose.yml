@@ -1,0 +1,76 @@
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --smp 1
+      - --memory 1G
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+      - "9644:9644"
+    networks:
+      - fraud-detection-net
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - fraud-detection-net
+
+  payment-api:
+    build:
+      context: ./payment_api
+    container_name: payment-api
+    ports:
+      - "8000:8000"
+    networks:
+      - fraud-detection-net
+    depends_on:
+      - redpanda
+    environment:
+      - KAFKA_BROKER=redpanda:29092
+      - TRANSACTIONS_TOPIC=transactions
+
+  flink-jobmanager:
+    build:
+      context: ./flink_app
+    container_name: flink-jobmanager
+    command: jobmanager
+    ports:
+      - "8081:8081"
+    volumes:
+      - ./flink_app:/opt/flink/usrlib
+    environment:
+      - "FLINK_PROPERTIES=jobmanager.rpc.address: flink-jobmanager"
+    networks:
+      - fraud-detection-net
+
+  flink-taskmanager:
+    build:
+      context: ./flink_app
+    container_name: flink-taskmanager
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    volumes:
+      - ./flink_app:/opt/flink/usrlib
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+    networks:
+      - fraud-detection-net
+
+networks:
+  fraud-detection-net:
+    driver: bridge

@@ -1,0 +1,4 @@
+# payment_api/requirements.txt
+fastapi
+uvicorn[standard]
+kafka-python

@@ -1,0 +1,2 @@
+# alert_monitor/requirements.txt
+redis

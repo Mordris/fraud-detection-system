@@ -1,0 +1,11 @@
+# config/flink-conf.yaml
+# Flink JobManager an TaskManager base configuration
+jobmanager.rpc.address: flink-jobmanager
+taskmanager.numberOfTaskSlots: 2
+
+# Configuration for PyFlink execution
+python.client.executable: /usr/bin/python3
+python.executable: /usr/bin/python3
+
+# Recommended for better network performance in Docker
+taskmanager.host: flink-taskmanager

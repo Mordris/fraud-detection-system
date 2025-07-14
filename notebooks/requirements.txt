@@ -1,0 +1,8 @@
+#notebooks/requirements.txt
+jupyter
+pandas
+numpy
+scikit-learn
+faker
+matplotlib
+seaborn
