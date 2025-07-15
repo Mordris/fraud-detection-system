@@ -1,7 +1,9 @@
+# docker-compose.yml
 services:
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v23.3.1
     container_name: redpanda
+    # This is the correct way to structure the command for the container's entrypoint
     command:
       - redpanda
       - start
@@ -11,10 +13,25 @@ services:
       - --node-id 0
       - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
       - --advertise-kafka-addr PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+      - --check=false
     ports:
       - "9092:9092"
       - "29092:29092"
       - "9644:9644"
+    # --- HEALTHCHECK REMOVED ---
+    networks:
+      - fraud-detection-net
+
+  alert-monitor:
+    build:
+      context: ./alert_monitor
+    container_name: alert-monitor
+    ports:
+      - "8080:8080"
+    depends_on:
+      - redis # Simple depends_on, waits for service to start
+    environment:
+      - REDIS_HOST=redis
     networks:
       - fraud-detection-net
 
@@ -30,12 +47,20 @@ services:
     build:
       context: ./payment_api
     container_name: payment-api
+    # Add a delay to ensure redpanda is ready before this service starts connecting
+    command: >
+      bash -c "
+        echo 'Payment API: Waiting 15s for Redpanda to initialize...' &&
+        sleep 15 &&
+        echo 'Payment API: Starting...' &&
+        uvicorn main:app --host 0.0.0.0 --port 8000
+      "
     ports:
       - "8000:8000"
     networks:
       - fraud-detection-net
     depends_on:
-      - redpanda
+      - redpanda # Simple depends_on
     environment:
       - KAFKA_BROKER=redpanda:29092
       - TRANSACTIONS_TOPIC=transactions
@@ -44,13 +69,24 @@ services:
     build:
       context: ./flink_app
     container_name: flink-jobmanager
-    command: jobmanager
+    # Add a delay to ensure redpanda and redis are ready
+    command: >
+      bash -c "
+        echo 'Flink JobManager: Waiting 15s for dependencies...' &&
+        sleep 15 &&
+        echo 'Flink JobManager: Starting...' &&
+        /docker-entrypoint.sh jobmanager
+      "
     ports:
       - "8081:8081"
     volumes:
       - ./flink_app:/opt/flink/usrlib
+      - ./flink_app/model:/opt/flink/usrlib/model
     environment:
       - "FLINK_PROPERTIES=jobmanager.rpc.address: flink-jobmanager"
+    depends_on:
+      - redpanda
+      - redis
     networks:
       - fraud-detection-net
 
@@ -63,6 +99,7 @@ services:
       - flink-jobmanager
     volumes:
       - ./flink_app:/opt/flink/usrlib
+      - ./flink_app/model:/opt/flink/usrlib/model
     environment:
       - |
         FLINK_PROPERTIES=
