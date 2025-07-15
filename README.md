@@ -12,7 +12,10 @@ The primary goal is to showcase a realistic, distributed architecture for statef
 
   <img src="./docs/images/flink-overview.png" alt="Flink Overview" width="48%">
   <img src="./docs/images/flink-job-details.png" alt="Flink Job Details" width="48%">
-  <img src="./docs/images/fraud-dashboard.png" alt="Fraud Dashboard" width="66%" style="margin-top: 16px;">
+
+  <div style="width: 70%; text-align: center; margin-top: 16px;">
+    <img src="./docs/images/fraud-dashboard.png" alt="Fraud Dashboard" width="66%">
+  </div>
 
 </div>
 
