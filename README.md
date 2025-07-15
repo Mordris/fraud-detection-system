@@ -8,16 +8,44 @@ The primary goal is to showcase a realistic, distributed architecture for statef
 
 ## System in Action
 
-<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 16px;">
+```html
+<div
+  style="display: flex; flex-direction: column; align-items: center; gap: 16px;"
+>
+  <img
+    src="./docs/images/flink-overview.png"
+    alt="Flink Overview"
+    width="66%"
+  />
+  <p>
+    <strong>Flink Job Overview:</strong> Displays the active Flink job titled
+    "Stateful Fraud Detection with Redis Alerts" in a stable
+    <code>RUNNING</code> state, indicating continuous stream processing.
+  </p>
 
-  <img src="./docs/images/flink-overview.png" alt="Flink Overview" width="48%">
-  <img src="./docs/images/flink-job-details.png" alt="Flink Job Details" width="48%">
+  <img
+    src="./docs/images/flink-job-details.png"
+    alt="Flink Job Details"
+    width="66%"
+  />
+  <p>
+    <strong>Flink Job Details (Dataflow):</strong> Visualizes the internal
+    operators and data transformation steps within the Flink pipeline, including
+    source, keyed processing, model inference, and sink stages.
+  </p>
 
-  <div style="width: 70%; text-align: center; margin-top: 16px;">
-    <img src="./docs/images/fraud-dashboard.png" alt="Fraud Dashboard" width="66%">
-  </div>
-
+  <img
+    src="./docs/images/fraud-dashboard.png"
+    alt="Fraud Dashboard"
+    width="66%"
+  />
+  <p>
+    <strong>Fraud Detection Dashboard:</strong> The web interface for real-time
+    monitoring of fraud alerts. It connects to the backend via WebSocket and
+    displays incoming fraud events as they are detected.
+  </p>
 </div>
+```
 
 - **Flink UI (Top):** Shows the "Stateful Fraud Detection with Redis Alerts" job in a stable `RUNNING` state, processing data as it arrives.
 - **Fraud Dashboard (Bottom):** The end-user interface displays alerts in real-time as they are detected.
