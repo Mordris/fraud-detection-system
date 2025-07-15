@@ -1,5 +1,5 @@
 # alert_monitor/requirements.txt
-redis==4.6.0
 fastapi==0.104.1
-uvicorn==0.24.0
-pydantic==2.5.0
+uvicorn[standard]==0.24.0
+redis[hiredis]>=5.0.0
+websockets>=11.0.0

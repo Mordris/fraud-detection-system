@@ -1,8 +1,9 @@
-#notebooks/requirements.txt
+# notebooks/requirements.txt
 jupyter
-pandas
-numpy
-scikit-learn
+pandas==2.0.3
+numpy==1.24.3
+scikit-learn==1.3.0
+joblib==1.3.2  # Explicitly add joblib
 faker
 matplotlib
 seaborn

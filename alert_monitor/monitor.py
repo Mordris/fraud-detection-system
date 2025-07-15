@@ -3,6 +3,8 @@ import os
 import json
 import logging
 import asyncio
+import time
+import threading
 from datetime import datetime
 from typing import List, Dict, Any
 
@@ -21,11 +23,15 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Fraud Alert Monitor", description="Real-time fraud detection alert monitoring system")
 
-redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB)
-
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
+        # Get the current event loop in a thread-safe way
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -33,60 +39,68 @@ class ConnectionManager:
         logger.info(f"WebSocket connected. Total connections: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
         logger.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
 
-    async def broadcast(self, message: str):
+    def broadcast(self, message: str):
+        # Use asyncio.run_coroutine_threadsafe to send messages from the background thread
+        asyncio.run_coroutine_threadsafe(self._broadcast(message), self.loop)
+
+    async def _broadcast(self, message: str):
         for connection in self.active_connections:
             await connection.send_text(message)
 
 manager = ConnectionManager()
-
 recent_alerts: List[Dict[str, Any]] = []
 MAX_RECENT_ALERTS = 100
 
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(monitor_redis_alerts())
-
-async def monitor_redis_alerts():
-    logger.info("Starting Redis alert monitoring...")
+def redis_listener_thread():
+    """This function runs in a separate thread and listens to Redis."""
+    logger.info("Starting Redis listener thread...")
     while True:
         try:
-            # Use BLPOP for efficient, blocking pop from the left of the list
-            # Flink will RPUSH to the right, so we BLPOP from the left (FIFO)
-            _, alert_data = redis_client.blpop([REDIS_KEY])
+            redis_client = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=REDIS_DB, decode_responses=True)
+            redis_client.ping() # Check connection
+            logger.info("Redis listener connected.")
             
-            if alert_data:
-                try:
-                    alert = json.loads(alert_data)
-                    alert['received_at'] = datetime.now().isoformat()
-                    
-                    recent_alerts.insert(0, alert)
-                    if len(recent_alerts) > MAX_RECENT_ALERTS:
-                        recent_alerts.pop()
-                    
-                    await manager.broadcast(json.dumps(alert))
-                    logger.info(f"New fraud alert: Transaction {alert.get('transaction_id')}")
-                    
-                except json.JSONDecodeError as e:
-                    logger.error(f"Error parsing alert JSON: {e}")
-            
+            while True:
+                # blpop is a blocking call, perfect for a background thread
+                result = redis_client.blpop([REDIS_KEY])
+                if result:
+                    _, alert_data = result
+                    try:
+                        alert = json.loads(alert_data)
+                        alert['received_at'] = datetime.now().isoformat()
+                        
+                        recent_alerts.insert(0, alert)
+                        if len(recent_alerts) > MAX_RECENT_ALERTS:
+                            recent_alerts.pop()
+                        
+                        manager.broadcast(json.dumps(alert))
+                        logger.info(f"Broadcasted new fraud alert: {alert.get('transaction_id')}")
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Error parsing alert JSON: {e}")
         except Exception as e:
-            logger.error(f"Error monitoring Redis: {e}, will reconnect/retry.")
-            await asyncio.sleep(5)
+            logger.error(f"Redis listener thread error: {e}. Reconnecting in 5 seconds...")
+            time.sleep(5)
+
+@app.on_event("startup")
+async def startup_event():
+    """Start the background thread on application startup."""
+    listener_thread = threading.Thread(target=redis_listener_thread, daemon=True)
+    listener_thread.start()
 
 @app.get("/")
 async def get_dashboard():
+    # HTML content is correct
     return HTMLResponse(content="""
     <!DOCTYPE html>
     <html>
     <head>
         <title>Fraud Detection Dashboard</title>
-        <!-- Add this line to prevent the 404 error for favicon.ico -->
         <link rel="icon" href="data:;base64,iVBORw0KGgo=">
         <style>
-            /* Your CSS styles remain the same */
             body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
             .container { max-width: 1200px; margin: 0 auto; }
             .header { background: #2c3e50; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center; }
@@ -108,114 +122,57 @@ async def get_dashboard():
     </head>
     <body>
         <div class="container">
-            <div class="header">
-                <h1>Fraud Detection Dashboard</h1>
-                <p>Real-time monitoring of suspicious transactions</p>
-            </div>
-            
+            <div class="header"><h1>Fraud Detection Dashboard</h1><p>Real-time monitoring of suspicious transactions</p></div>
             <div class="stats">
-                <div class="stat-card">
-                    <div class="stat-value" id="total-alerts">0</div>
-                    <div class="stat-label">Total Alerts</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="recent-alerts">0</div>
-                    <div class="stat-label">Last Hour</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value disconnected" id="connection-status">Disconnected</div>
-                    <div class="stat-label">Status</div>
-                </div>
+                <div class="stat-card"><div class="stat-value" id="total-alerts">0</div><div class="stat-label">Total Alerts</div></div>
+                <div class="stat-card"><div class="stat-value" id="recent-alerts">0</div><div class="stat-label">Last Hour</div></div>
+                <div class="stat-card"><div class="stat-value disconnected" id="connection-status">Disconnected</div><div class="stat-label">Status</div></div>
             </div>
-            
-            <div id="status" class="status disconnected">
-                Disconnected from alert system
-            </div>
-            
-            <div id="alerts-container">
-                <p style="text-align: center; color: #7f8c8d; padding: 40px;">
-                    Waiting for fraud alerts...
-                </p>
-            </div>
+            <div id="status" class="status disconnected">Disconnected from alert system</div>
+            <div id="alerts-container"><p style="text-align: center; color: #7f8c8d; padding: 40px;">Waiting for fraud alerts...</p></div>
         </div>
-
         <script>
             let totalAlerts = 0;
             let recentAlerts = [];
             const alertsContainer = document.getElementById('alerts-container');
             const statusDiv = document.getElementById('status');
             const connectionStatus = document.getElementById('connection-status');
-            
             function connect() {
                 const ws = new WebSocket(`ws://${window.location.host}/ws`);
-                
                 ws.onopen = function(event) {
                     statusDiv.textContent = 'Connected to fraud alert system';
                     statusDiv.className = 'status connected';
                     connectionStatus.textContent = 'Connected';
                     connectionStatus.className = 'stat-value connected';
                 };
-                
                 ws.onclose = function(event) {
                     statusDiv.textContent = 'Disconnected from alert system. Retrying...';
                     statusDiv.className = 'status disconnected';
                     connectionStatus.textContent = 'Disconnected';
                     connectionStatus.className = 'stat-value disconnected';
-                    // Retry connection after 3 seconds
                     setTimeout(connect, 3000);
                 };
-                
                 ws.onmessage = function(event) {
                     const alert = JSON.parse(event.data);
                     addAlert(alert);
                 };
-
-                ws.onerror = function(err) {
-                    console.error('WebSocket Error:', err);
-                    ws.close();
-                };
+                ws.onerror = function(err) { console.error('WebSocket Error:', err); ws.close(); };
             }
-            
             function addAlert(alert) {
                 totalAlerts++;
-                
                 const now = new Date();
                 recentAlerts.push(now);
-                // Filter alerts older than 1 hour
                 recentAlerts = recentAlerts.filter(time => now - time < 3600000);
-
                 document.getElementById('total-alerts').textContent = totalAlerts;
                 document.getElementById('recent-alerts').textContent = recentAlerts.length;
-                
-                if (totalAlerts === 1) {
-                    alertsContainer.innerHTML = '';
-                }
-                
+                if (totalAlerts === 1) { alertsContainer.innerHTML = ''; }
                 const alertDiv = document.createElement('div');
                 alertDiv.className = 'alert';
-                alertDiv.innerHTML = `
-                    <div class="alert-header">🚨 FRAUD ALERT</div>
-                    <div class="alert-details">
-                        <strong>Transaction ID:</strong> ${alert.transaction_id}<br>
-                        <strong>User ID:</strong> ${alert.user_id}<br>
-                        <strong>Amount:</strong> $${parseFloat(alert.amount).toFixed(2)}
-                    </div>
-                    <div class="alert-time">
-                        Received: ${new Date(alert.received_at).toLocaleString()}
-                    </div>
-                `;
-                
+                alertDiv.innerHTML = `<div class="alert-header">🚨 FRAUD ALERT</div><div class="alert-details"><strong>Transaction ID:</strong> ${alert.transaction_id}<br><strong>User ID:</strong> ${alert.user_id}<br><strong>Amount:</strong> $${parseFloat(alert.amount).toFixed(2)}</div><div class="alert-time">Received: ${new Date(alert.received_at).toLocaleString()}</div>`;
                 alertsContainer.insertBefore(alertDiv, alertsContainer.firstChild);
-                
-                while (alertsContainer.children.length > 100) {
-                    alertsContainer.removeChild(alertsContainer.lastChild);
-                }
+                while (alertsContainer.children.length > 100) { alertsContainer.removeChild(alertsContainer.lastChild); }
             }
-            
-            // Initial connection
             connect();
-
-            // Update recent alerts count every second
             setInterval(() => {
                 const now = new Date();
                 recentAlerts = recentAlerts.filter(time => now - time < 3600000);
@@ -230,9 +187,10 @@ async def get_dashboard():
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
-        # Send recent alerts to the new connection
+        # Send recent alerts if any
         if recent_alerts:
-            await websocket.send_text(json.dumps({"type": "history", "data": recent_alerts}))
+            for alert in reversed(recent_alerts):
+                await websocket.send_text(json.dumps(alert))
         # Keep the connection alive
         while True:
             await websocket.receive_text()
