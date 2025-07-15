@@ -1,11 +1,25 @@
 # config/flink-conf.yaml
-# Flink JobManager an TaskManager base configuration
+
+# --- Flink Cluster Base Configuration ---
+# Sets the network address for the JobManager's RPC system.
+# All TaskManagers will use this address to connect to the JobManager.
 jobmanager.rpc.address: flink-jobmanager
+
+# --- TaskManager Configuration ---
+# Defines the number of processing slots available on each TaskManager.
+# A slot is the unit of resource allocation for running a Flink task.
 taskmanager.numberOfTaskSlots: 2
 
-# Configuration for PyFlink execution
-python.client.executable: /usr/bin/python3
-python.executable: /usr/bin/python3
-
-# Recommended for better network performance in Docker
+# Sets the hostname that the TaskManager will bind to. This is crucial
+# for networking within a Docker environment, ensuring containers can
+# find each other using their service names.
 taskmanager.host: flink-taskmanager
+
+# --- PyFlink Execution Configuration ---
+# Specifies the path to the Python interpreter on the client side
+# (i.e., where the `flink run` command is executed).
+python.client.executable: /usr/bin/python3
+
+# Specifies the path to the Python interpreter that will be used
+# to execute the Python UDFs on the TaskManager nodes.
+python.executable: /usr/bin/python3

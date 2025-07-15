@@ -6,11 +6,26 @@ The primary goal is to showcase a realistic, distributed architecture for statef
 
 ---
 
+## System in Action
+
+<div style="display: flex; flex-wrap: wrap; justify-content: center; gap: 16px;">
+
+  <img src="./docs/images/flink-overview.png" alt="Flink Overview" width="48%">
+  <img src="./docs/images/flink-job-details.png" alt="Flink Job Details" width="48%">
+  <img src="./docs/images/fraud-dashboard.png" alt="Fraud Dashboard" width="66%" style="margin-top: 16px;">
+
+</div>
+
+- **Flink UI (Top):** Shows the "Stateful Fraud Detection with Redis Alerts" job in a stable `RUNNING` state, processing data as it arrives.
+- **Fraud Dashboard (Bottom):** The end-user interface displays alerts in real-time as they are detected.
+
+---
+
 ## System Architecture
 
-The system is composed of several microservices orchestrated by Docker Compose. The data flows through the pipeline as follows:
-
 ![System Architecture](./docs/system-architecture.png)
+
+The system is composed of several microservices orchestrated by Docker Compose. The data flows through the pipeline as follows:
 
 1.  **Payment API**: A Python FastAPI application that acts as a simple payment gateway, receiving transaction data via a POST request.
 2.  **Redpanda**: A high-performance, Kafka-compatible streaming data platform that receives transactions from the API and stores them in the `transactions` topic.
@@ -168,8 +183,6 @@ Your real-time fraud detection system is now running!
 
 To stop all services and remove all containers, networks, and data volumes, run:
 
-````bash
-docker compose down --volumes```
-
----
-````
+```bash
+docker compose down --volumes
+```
