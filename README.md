@@ -8,14 +8,13 @@ The primary goal is to showcase a realistic, distributed architecture for statef
 
 ## System in Action
 
-```html
 <div
   style="display: flex; flex-direction: column; align-items: center; gap: 16px;"
 >
   <img
     src="./docs/images/flink-overview.png"
     alt="Flink Overview"
-    width="66%"
+    width="90%"
   />
   <p>
     <strong>Flink Job Overview:</strong> Displays the active Flink job titled
@@ -23,29 +22,30 @@ The primary goal is to showcase a realistic, distributed architecture for statef
     <code>RUNNING</code> state, indicating continuous stream processing.
   </p>
 
-  <img
+<img
     src="./docs/images/flink-job-details.png"
     alt="Flink Job Details"
-    width="66%"
+    width="90%"
   />
+
   <p>
     <strong>Flink Job Details (Dataflow):</strong> Visualizes the internal
     operators and data transformation steps within the Flink pipeline, including
     source, keyed processing, model inference, and sink stages.
   </p>
 
-  <img
+<img
     src="./docs/images/fraud-dashboard.png"
     alt="Fraud Dashboard"
-    width="66%"
+    width="90%"
   />
+
   <p>
     <strong>Fraud Detection Dashboard:</strong> The web interface for real-time
     monitoring of fraud alerts. It connects to the backend via WebSocket and
     displays incoming fraud events as they are detected.
   </p>
 </div>
-```
 
 - **Flink UI (Top):** Shows the "Stateful Fraud Detection with Redis Alerts" job in a stable `RUNNING` state, processing data as it arrives.
 - **Fraud Dashboard (Bottom):** The end-user interface displays alerts in real-time as they are detected.
