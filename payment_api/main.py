@@ -1,5 +1,3 @@
-# payment_api/main.py
-
 # --- Standard Library Imports ---
 import os
 import json
@@ -8,24 +6,19 @@ import time
 
 # --- Third-Party Imports ---
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field  # For data validation and serialization.
-from kafka import KafkaProducer         # The client for sending messages to Kafka/Redpanda.
-from kafka.errors import NoBrokersAvailable
+from pydantic import BaseModel, Field
+from kafka import KafkaProducer, KafkaAdminClient
+from kafka.admin import NewTopic
+from kafka.errors import NoBrokersAvailable, TopicAlreadyExistsError, KafkaError
 
 # --- Configuration ---
-# Set up basic logging to see events in the container logs.
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Get Kafka configuration from environment variables, with defaults.
 KAFKA_BROKER = os.environ.get("KAFKA_BROKER", "redpanda:29092")
 TRANSACTIONS_TOPIC = os.environ.get("TRANSACTIONS_TOPIC", "transactions")
 
-# Initialize the FastAPI application instance.
 app = FastAPI(title="Payment API", description="An API to simulate and produce transaction events to Redpanda/Kafka.")
 
-# --- Pydantic Model for Data Validation ---
-# This model defines the expected structure of a transaction POST request.
-# FastAPI uses this to automatically validate incoming data.
 class Transaction(BaseModel):
     transaction_id: str = Field(..., description="Unique identifier for the transaction")
     user_id: str = Field(..., description="Identifier for the user")
@@ -35,77 +28,90 @@ class Transaction(BaseModel):
     merchant_id: str = Field(..., description="Identifier for the merchant")
     location: str = Field(..., description="Location of the transaction")
 
-# --- Kafka Producer Management ---
-# The KafkaProducer is a global variable to be shared across the application.
+# --- Globals for Kafka clients ---
 producer = None
+admin_client = None
+
+def create_topic_if_not_exists():
+    """
+    Connects to Kafka as an admin and creates the 'transactions' topic.
+    This function is resilient and will retry if Kafka is not ready yet.
+    """
+    global admin_client
+    retries = 10
+    delay = 6  # seconds
+
+    for i in range(retries):
+        try:
+            logging.info(f"Attempting to connect to Kafka AdminClient... (Attempt {i+1}/{retries})")
+            admin_client = KafkaAdminClient(
+                bootstrap_servers=KAFKA_BROKER,
+                client_id='payment-api-admin'
+            )
+            logging.info("Kafka AdminClient connected successfully.")
+            
+            topic_list = [NewTopic(name=TRANSACTIONS_TOPIC, num_partitions=1, replication_factor=1)]
+            admin_client.create_topics(new_topics=topic_list, validate_only=False)
+            logging.info(f"Topic '{TRANSACTIONS_TOPIC}' created or already exists.")
+            return True # Success
+        except TopicAlreadyExistsError:
+            logging.info(f"Topic '{TRANSACTIONS_TOPIC}' already exists. No action needed.")
+            return True # Success
+        except (NoBrokersAvailable, KafkaError) as e:
+            logging.warning(f"Could not create topic yet. Kafka might not be ready. Error: {e}. Retrying in {delay}s...")
+            time.sleep(delay)
+        finally:
+            if admin_client:
+                admin_client.close()
+
+    logging.error("Failed to create Kafka topic after multiple retries. The application cannot start.")
+    return False
 
 @app.on_event("startup")
 def startup_event():
     """
-    This function is called by FastAPI when the application starts.
-    It handles the initial connection to Kafka with a retry mechanism.
+    Handles Kafka connection and topic creation on application startup.
     """
     global producer
-    retry_count = 0
-    max_retries = 5
-    retry_delay = 5  # seconds
 
-    # This loop makes the service resilient to startup order issues.
-    # It will keep trying to connect to Kafka until it succeeds or runs out of retries.
-    while retry_count < max_retries:
-        try:
-            # Initialize the KafkaProducer.
-            producer = KafkaProducer(
-                bootstrap_servers=[KAFKA_BROKER],
-                # Serialize the value of each message from a dict to a UTF-8 encoded JSON string.
-                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-                client_id="payment-api-producer"
-            )
-            logging.info("Successfully connected to Redpanda/Kafka.")
-            
-            # Send a test message on startup. This is a good practice as it will
-            # trigger Redpanda's auto-topic-creation feature if the topic doesn't exist yet.
-            producer.send(TRANSACTIONS_TOPIC, {'status': 'API producer is up and running'})
-            producer.flush() # Ensure the message is sent immediately.
-            logging.info(f"Test message sent to '{TRANSACTIONS_TOPIC}' topic.")
-            return # Exit the loop on successful connection.
-        except NoBrokersAvailable:
-            # If Kafka isn't ready yet, log a warning and wait before retrying.
-            retry_count += 1
-            logging.warning(f"Could not connect to Redpanda/Kafka. Retrying in {retry_delay}s... ({retry_count}/{max_retries})")
-            time.sleep(retry_delay)
-    
-    # If all retries fail, log a critical error.
-    logging.error("Failed to connect to Redpanda/Kafka after multiple retries. The application will start but cannot produce messages.")
+    # First, ensure the topic exists. This will block until it succeeds or fails.
+    if not create_topic_if_not_exists():
+        # A more graceful way to handle failure would be to exit the process
+        # so Kubernetes restarts it, but for now, we prevent the producer from starting.
+        logging.critical("FATAL: Topic creation failed. Producer will not be initialized.")
+        return
+
+    # Now, connect the producer, which should succeed as Kafka is verified to be up.
+    try:
+        producer = KafkaProducer(
+            bootstrap_servers=[KAFKA_BROKER],
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            client_id="payment-api-producer"
+        )
+        logging.info("Successfully connected KafkaProducer.")
+        # We no longer need to send a test message as the admin client verified connectivity.
+    except NoBrokersAvailable:
+        logging.error("Failed to connect KafkaProducer even after admin client succeeded. This should not happen.")
 
 @app.on_event("shutdown")
 def shutdown_event():
-    """This function is called by FastAPI when the application is shutting down."""
+    """Gracefully closes connections on shutdown."""
     if producer:
-        # Gracefully close the Kafka producer connection.
         producer.close()
-        logging.info("Redpanda/Kafka producer connection closed.")
+        logging.info("Kafka producer connection closed.")
+    if admin_client:
+        admin_client.close()
+        logging.info("Kafka admin client connection closed.")
 
-# --- API Endpoints ---
 @app.post("/transaction", status_code=202)
 def create_transaction(transaction: Transaction):
-    """
-    Receives a transaction, validates it against the Transaction model,
-    and sends it to the 'transactions' Kafka topic.
-    """
-    # If the producer failed to initialize, return a service unavailable error.
     if not producer:
         raise HTTPException(status_code=503, detail="Service Unavailable: Kafka producer is not connected.")
-
     try:
-        # Convert the Pydantic model to a dictionary.
         transaction_dict = transaction.dict()
-        # Send the transaction to the Kafka topic. This is an asynchronous operation.
         future = producer.send(TRANSACTIONS_TOPIC, value=transaction_dict)
-        # Block until the message is successfully sent (or times out).
         record_metadata = future.get(timeout=10)
-        logging.info(f"Successfully produced transaction {transaction.transaction_id} to topic '{record_metadata.topic}' partition {record_metadata.partition}")
-        # Return an "Accepted" status code to the client.
+        logging.info(f"Successfully produced transaction {transaction.transaction_id} to topic '{record_metadata.topic}'")
         return {"status": "accepted", "transaction_id": transaction.transaction_id}
     except Exception as e:
         logging.error(f"Failed to send transaction to Kafka: {e}")
@@ -113,6 +119,5 @@ def create_transaction(transaction: Transaction):
 
 @app.get("/health")
 def health_check():
-    """A simple health check endpoint to verify service and Kafka connectivity."""
     kafka_status = "connected" if producer and producer.bootstrap_connected() else "disconnected"
     return {"api_status": "ok", "kafka_status": kafka_status}

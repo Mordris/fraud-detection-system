@@ -17,11 +17,19 @@ RUN ln -s /usr/bin/python3 /usr/bin/python
 RUN wget -P /opt/flink/lib/ https://repo1.maven.org/maven2/org/apache/flink/flink-connector-kafka/3.1.0-1.18/flink-connector-kafka-3.1.0-1.18.jar && \
     wget -P /opt/flink/lib/ https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.2.3/kafka-clients-3.2.3.jar
 
-# Copy requirements file
-COPY requirements.txt /tmp/requirements.txt
+# --- NEW SECTION START ---
+# Create the /opt/flink/usrlib directory where we'll place our code
+WORKDIR /opt/flink/usrlib
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r /tmp/requirements.txt
+# Copy the Python script, model, and requirements into the container.
+# This ensures they are owned by the correct user when the image is built.
+COPY fraud_detector.py .
+COPY model ./model
+COPY requirements.txt .
+
+# Install Python dependencies from the copied requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+# --- NEW SECTION END ---
 
 # Switch back to the default flink user
 USER flink
