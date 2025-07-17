@@ -1,5 +1,5 @@
 # alert_monitor/requirements.txt
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
+fastapi
+uvicorn[standard]
 redis[hiredis]>=5.0.0
 websockets>=11.0.0
