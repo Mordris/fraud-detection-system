@@ -209,6 +209,3 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-
-# Note: I have truncated the long HTML string for brevity. 
-# Make sure to copy the full HTML from your original file into the """...""" block.
