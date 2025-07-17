@@ -2,20 +2,56 @@
 
 name: CI/CD for Alert Monitor
 
-# This workflow triggers on a push to the main branch,
-# but ONLY if changes were made inside the alert_monitor/ directory.
 on:
   push:
     branches: ["main"]
     paths:
       - "alert_monitor/**"
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 jobs:
+  test:
+    name: Run Unit & Integration Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out application code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r alert_monitor/requirements.txt
+          pip install -r requirements-test.txt
+
+      - name: Run tests with pytest
+        run: |
+          export PYTHONPATH=.
+          pytest alert_monitor/
+
+  lint:
+    name: Lint Code with Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out application code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Install and run Ruff
+        run: |
+          pip install ruff
+          ruff check ./alert_monitor
+
   build-and-push:
     name: Build and Push Image
     runs-on: ubuntu-latest
+    needs: [test, lint]
     steps:
       - name: Check out application code
         uses: actions/checkout@v4
@@ -25,33 +61,26 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          # GH_PAT is the secret for your token with 'write:packages' scope
           password: ${{ secrets.GH_PAT }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          # The context is the directory where the Dockerfile is located
           context: ./alert_monitor
           push: true
-          # Tag the image with 'latest' and the unique Git SHA
           tags: |
             ghcr.io/mordris/alert-monitor:latest
             ghcr.io/mordris/alert-monitor:${{ github.sha }}
 
   update-config-repo:
     name: Update Kubernetes Manifests
-    # This job will only run if the 'build-and-push' job succeeds
     needs: build-and-push
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out config repository
-        # Checks out your fraud-detection-system-config repo
         uses: actions/checkout@v4
         with:
           repository: Mordris/fraud-detection-system-config
-          # CONFIG_REPO_PAT is the secret for your token with 'repo' scope
           token: ${{ secrets.CONFIG_REPO_PAT }}
 
       - name: Install Kustomize
@@ -61,9 +90,7 @@ jobs:
 
       - name: Update image tag with Kustomize
         run: |
-          # Navigate to the correct overlay
           cd k8s/overlays/development
-          # Use kustomize to set the new image tag using the Git SHA from this CI run
           kustomize edit set image placeholder-repo/alert-monitor=ghcr.io/mordris/alert-monitor:${{ github.sha }}
 
       - name: Commit and push changes
