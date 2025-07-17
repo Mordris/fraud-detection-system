@@ -1,4 +1,4 @@
-# payment_api/requirements-test.txt
+# requirements-test.txt
 pytest
 httpx
 pytest-mock

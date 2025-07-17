@@ -1,5 +1,4 @@
 # .github/workflows/payment-api.yml
-
 name: CI/CD for Payment API
 
 on:
@@ -31,7 +30,9 @@ jobs:
           pip install -r requirements-test.txt
 
       - name: Run tests with pytest
-        run: pytest payment_api/
+        run: |
+          export PYTHONPATH=.
+          pytest payment_api/
 
   # --- NEW JOB: Lint ---
   # This job runs in parallel with 'test' to check code quality.
@@ -48,7 +49,7 @@ jobs:
       - name: Install and run Ruff
         run: |
           pip install ruff
-          ruff check .
+          ruff check ./payment_api
 
   # --- MODIFIED JOB: Build and Push ---
   build-and-push:
