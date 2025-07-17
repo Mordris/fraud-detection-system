@@ -1,4 +1,5 @@
 # .github/workflows/payment-api.yml
+
 name: CI/CD for Payment API
 
 on:
@@ -9,33 +10,26 @@ on:
   workflow_dispatch:
 
 jobs:
-  # --- NEW JOB: Test ---
-  # This job runs first to validate code correctness.
   test:
     name: Run Unit & Integration Tests
     runs-on: ubuntu-latest
     steps:
       - name: Check out application code
         uses: actions/checkout@v4
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r payment_api/requirements.txt
           pip install -r requirements-test.txt
-
       - name: Run tests with pytest
         run: |
           export PYTHONPATH=.
           pytest payment_api/
 
-  # --- NEW JOB: Lint ---
-  # This job runs in parallel with 'test' to check code quality.
   lint:
     name: Lint Code with Ruff
     runs-on: ubuntu-latest
@@ -51,58 +45,80 @@ jobs:
           pip install ruff
           ruff check ./payment_api
 
-  # --- MODIFIED JOB: Build and Push ---
   build-and-push:
     name: Build and Push Image
     runs-on: ubuntu-latest
-    # This job will now ONLY run if 'test' and 'lint' jobs succeed.
+    # This job now runs after tests and linting pass.
     needs: [test, lint]
+    # We add an 'outputs' section to pass the image tag to the scan job.
+    outputs:
+      image_tag: ${{ steps.meta.outputs.version }}
     steps:
       - name: Check out application code
         uses: actions/checkout@v4
-
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GH_PAT }}
-
+      - name: Docker meta
+        id: meta # We use a meta-step to easily define the tags
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/mordris/payment-api
+          tags: |
+            type=sha
+            latest
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: ./payment_api
           push: true
-          tags: |
-            ghcr.io/mordris/payment-api:latest
-            ghcr.io/mordris/payment-api:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # --- NEW JOB: Scan ---
+  # This job runs after the image is built to check for vulnerabilities.
+  scan:
+    name: Scan Image for Vulnerabilities
+    runs-on: ubuntu-latest
+    # It needs the build job to be completed first.
+    needs: build-and-push
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "ghcr.io/mordris/payment-api:${{ needs.build-and-push.outputs.image_tag }}"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH"
 
   update-config-repo:
     name: Update Kubernetes Manifests
-    # This job depends on the successful completion of the build job.
-    needs: build-and-push
+    # This job now depends on the scan job, which depends on the build job.
+    # This creates the full, secure pipeline.
+    needs: [build-and-push, scan]
     runs-on: ubuntu-latest
-
     steps:
       - name: Check out config repository
         uses: actions/checkout@v4
         with:
           repository: Mordris/fraud-detection-system-config
           token: ${{ secrets.CONFIG_REPO_PAT }}
-
       - name: Install Kustomize
         run: |
           curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash
           sudo mv kustomize /usr/local/bin/
-
       - name: Update image tag with Kustomize
         run: |
           cd k8s/overlays/development
-          kustomize edit set image placeholder-repo/payment-api=ghcr.io/mordris/payment-api:${{ github.sha }}
-
+          kustomize edit set image placeholder-repo/payment-api=ghcr.io/mordris/payment-api:${{ needs.build-and-push.outputs.image_tag }}
       - name: Commit and push changes
         run: |
           git config --global user.name "GitHub Actions CI"
           git config --global user.email "actions@github.com"
-          git commit -am "ci(payment-api): Update image to ${{ github.sha }}"
+          git commit -am "ci(payment-api): Update image to ${{ needs.build-and-push.outputs.image_tag }}"
           git push
