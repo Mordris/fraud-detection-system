@@ -1,5 +1,4 @@
 # alert_monitor/Dockerfile
-
 FROM python:3.10.13-slim-bullseye
 
 WORKDIR /app
