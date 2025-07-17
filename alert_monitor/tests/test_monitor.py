@@ -3,7 +3,7 @@
 import pytest
 import json
 from httpx import AsyncClient, ASGITransport
-from httpx_ws import aconnect_ws # Import the websocket connector
+from httpx_ws import aconnect_ws
 
 from alert_monitor.monitor import app, recent_alerts, manager
 
@@ -13,7 +13,10 @@ pytestmark = pytest.mark.asyncio
 @pytest.fixture
 async def api_client(mocker):
     """
-    Fixture for testing standard HTTP endpoints.
+    A single, robust fixture that:
+    1. Mocks external services (Redis listener).
+    2. Correctly handles the FastAPI lifespan events.
+    3. Provides a fully configured test client for both HTTP and WebSocket tests.
     """
     mocker.patch("alert_monitor.monitor.redis_listener_thread")
 
@@ -22,22 +25,6 @@ async def api_client(mocker):
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
     
-    recent_alerts.clear()
-    manager.active_connections.clear()
-
-
-@pytest.fixture
-async def websocket_client(mocker):
-    """
-    A separate fixture specifically for testing WebSocket endpoints using httpx-ws.
-    """
-    mocker.patch("alert_monitor.monitor.redis_listener_thread")
-    
-    async with app.router.lifespan_context(app):
-        transport = ASGITransport(app=app)
-        # Yield the transport to be used by the websocket client
-        yield transport
-
     recent_alerts.clear()
     manager.active_connections.clear()
 
@@ -54,19 +41,19 @@ async def test_get_dashboard(api_client: AsyncClient):
     assert "<title>Fraud Detection Dashboard</title>" in response.text
 
 
-async def test_websocket_connection(websocket_client: ASGITransport):
+async def test_websocket_connection(api_client: AsyncClient):
     """
     Tests if a client can successfully connect to the WebSocket endpoint.
     """
-    # Use the aconnect_ws context manager from httpx-ws
-    async with aconnect_ws("/ws", transport=websocket_client) as websocket:
+    # aconnect_ws uses the client object directly
+    async with aconnect_ws("/ws", client=api_client) as websocket:
         assert len(manager.active_connections) == 1
         assert manager.active_connections[0] == websocket
 
     assert len(manager.active_connections) == 0
 
 
-async def test_websocket_receives_broadcast(websocket_client: ASGITransport, mocker):
+async def test_websocket_receives_broadcast(api_client: AsyncClient, mocker):
     """
     Tests if a connected WebSocket client receives a broadcasted message.
     """
@@ -75,8 +62,7 @@ async def test_websocket_receives_broadcast(websocket_client: ASGITransport, moc
 
     mocker.patch("asyncio.run_coroutine_threadsafe", side_effect=mock_broadcast)
 
-    # Use the aconnect_ws context manager from httpx-ws
-    async with aconnect_ws("/ws", transport=websocket_client) as websocket:
+    async with aconnect_ws("/ws", client=api_client) as websocket:
         test_alert = {
             "transaction_id": "ws_test_001", "user_id": "user_ws_test",
             "amount": "999.99", "received_at": "2025-07-18T14:00:00Z"
