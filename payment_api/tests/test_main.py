@@ -1,7 +1,7 @@
 # payment_api/tests/test_main.py
 
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 
 # Import the FastAPI app instance from your main application file
 from payment_api.main import app
@@ -13,7 +13,9 @@ pytestmark = pytest.mark.asyncio
 # This is run once per test session and provides a client to make requests.
 @pytest.fixture(scope="session")
 async def api_client():
-    async with AsyncClient(app=app, base_url="http://test") as client:
+    # Use ASGITransport to wrap the FastAPI app
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
 
 # --- Test Cases ---
