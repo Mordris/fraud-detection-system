@@ -1,7 +1,7 @@
 # payment_api/Dockerfile
 
 # Use a specific, more secure version of the official Python image
-FROM python:3.10.13-slim-bullseye
+FROM python:3.10-slim-bookworm
 
 # Set the working directory in the container
 WORKDIR /app
