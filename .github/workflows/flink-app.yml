@@ -88,7 +88,7 @@ jobs:
           sudo mv kustomize /usr/local/bin/
       - name: Update image tag with Kustomize
         run: |
-          cd ks/overlays/development
+          cd k8s/overlays/development
           kustomize edit set image placeholder-repo/flink-app=ghcr.io/mordris/flink-app:${{ needs.build-and-push.outputs.image_tag }}
       - name: Commit and push changes
         run: |
