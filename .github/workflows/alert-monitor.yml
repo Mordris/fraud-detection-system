@@ -6,9 +6,9 @@ name: CI/CD for Alert Monitor
 # but ONLY if changes were made inside the alert_monitor/ directory.
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
-      - 'alert_monitor/**'
+      - "alert_monitor/**"
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -64,7 +64,7 @@ jobs:
           # Navigate to the correct overlay
           cd k8s/overlays/development
           # Use kustomize to set the new image tag using the Git SHA from this CI run
-          kustomize edit set image ghcr.io/mordris/alert-monitor=ghcr.io/mordris/alert-monitor:${{ github.sha }}
+          kustomize edit set image placeholder-repo/alert-monitor=ghcr.io/mordris/alert-monitor:${{ github.sha }}
 
       - name: Commit and push changes
         run: |

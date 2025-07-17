@@ -6,9 +6,9 @@ name: CI/CD for Flink App
 # but ONLY if changes were made inside the flink_app/ directory.
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
-      - 'flink_app/**'
+      - "flink_app/**"
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -64,7 +64,7 @@ jobs:
           # Navigate to the correct overlay
           cd k8s/overlays/development
           # Use kustomize to set the new image. Note the image name must match what's in your kustomization.yaml
-          kustomize edit set image ghcr.io/mordris/flink-app=ghcr.io/mordris/flink-app:${{ github.sha }}
+          kustomize edit set image placeholder-repo/flink-app=ghcr.io/mordris/flink-app:${{ github.sha }}
 
       - name: Commit and push changes
         run: |

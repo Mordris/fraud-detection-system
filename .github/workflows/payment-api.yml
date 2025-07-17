@@ -6,9 +6,9 @@ name: CI/CD for Payment API
 # but ONLY if changes were made inside the payment_api/ directory.
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
     paths:
-      - 'payment_api/**'
+      - "payment_api/**"
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
@@ -64,7 +64,7 @@ jobs:
           # Navigate to the correct overlay
           cd k8s/overlays/development
           # Use kustomize to set the new image tag using the Git SHA from this CI run
-          kustomize edit set image ghcr.io/mordris/payment-api=ghcr.io/mordris/payment-api:${{ github.sha }}
+          kustomize edit set image placeholder-repo/payment-api=ghcr.io/mordris/payment-api:${{ github.sha }}
 
       - name: Commit and push changes
         run: |
