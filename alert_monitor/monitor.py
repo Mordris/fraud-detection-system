@@ -7,7 +7,7 @@ import logging
 import asyncio
 import time
 import threading
-from contextlib import asynccontextmanager # <--- Make sure this is imported
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import List, Dict, Any
 
@@ -102,7 +102,6 @@ async def lifespan(app: FastAPI):
     # No specific shutdown logic needed for the daemon thread
 
 # --- FastAPI App Initialization ---
-# Pass the lifespan manager directly to the FastAPI constructor.
 app = FastAPI(title="Fraud Alert Monitor", lifespan=lifespan)
 
 
