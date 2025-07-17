@@ -5,6 +5,7 @@ import os
 import json
 import logging
 import time
+from contextlib import asynccontextmanager
 
 # --- Third-Party Imports ---
 from fastapi import FastAPI, HTTPException
@@ -19,27 +20,16 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 KAFKA_BROKER = os.environ.get("KAFKA_BROKER", "redpanda:29092")
 TRANSACTIONS_TOPIC = os.environ.get("TRANSACTIONS_TOPIC", "transactions")
 
-app = FastAPI(title="Payment API", description="An API to simulate and produce transaction events to Redpanda/Kafka.")
-
-class Transaction(BaseModel):
-    transaction_id: str = Field(..., description="Unique identifier for the transaction")
-    user_id: str = Field(..., description="Identifier for the user")
-    card_number: str = Field(..., description="Masked card number")
-    amount: float = Field(..., gt=0, description="Transaction amount, must be positive")
-    timestamp: str = Field(..., description="Timestamp of the transaction in ISO 8601 format")
-    merchant_id: str = Field(..., description="Identifier for the merchant")
-    location: str = Field(..., description="Location of the transaction")
-
 # --- Globals for Kafka clients ---
-producer = None
-admin_client = None
+# We store them in a dictionary to manage them within the lifespan context
+kafka_clients = {}
 
 def create_topic_if_not_exists():
     """
     Connects to Kafka as an admin and creates the 'transactions' topic.
     This function is resilient and will retry if Kafka is not ready yet.
     """
-    global admin_client
+    admin_client = None
     retries = 10
     delay = 6  # seconds
 
@@ -69,49 +59,66 @@ def create_topic_if_not_exists():
     logging.error("Failed to create Kafka topic after multiple retries. The application cannot start.")
     return False
 
-@app.on_event("startup")
-def startup_event():
+# --- Lifespan Context Manager (Modern Replacement for on_event) ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """
-    Handles Kafka connection and topic creation on application startup.
+    Manages the application's startup and shutdown logic.
     """
-    global producer
+    # --- Code to run on startup ---
+    logging.info("Application startup: Initializing Kafka connection...")
+    
+    if create_topic_if_not_exists():
+        try:
+            kafka_clients["producer"] = KafkaProducer(
+                bootstrap_servers=[KAFKA_BROKER],
+                value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+                client_id="payment-api-producer"
+            )
+            logging.info("Successfully connected KafkaProducer.")
+        except NoBrokersAvailable:
+            logging.error("Failed to connect KafkaProducer during startup.")
+            kafka_clients["producer"] = None
+    else:
+        # If topic creation failed, ensure producer is None
+        kafka_clients["producer"] = None
+    
+    yield # The application runs here
 
-    # First, ensure the topic exists. This will block until it succeeds or fails.
-    if not create_topic_if_not_exists():
-        # A more graceful way to handle failure would be to exit the process
-        # so Kubernetes restarts it, but for now, we prevent the producer from starting.
-        logging.critical("FATAL: Topic creation failed. Producer will not be initialized.")
-        return
-
-    # Now, connect the producer, which should succeed as Kafka is verified to be up.
-    try:
-        producer = KafkaProducer(
-            bootstrap_servers=[KAFKA_BROKER],
-            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-            client_id="payment-api-producer"
-        )
-        logging.info("Successfully connected KafkaProducer.")
-        # We no longer need to send a test message as the admin client verified connectivity.
-    except NoBrokersAvailable:
-        logging.error("Failed to connect KafkaProducer even after admin client succeeded. This should not happen.")
-
-@app.on_event("shutdown")
-def shutdown_event():
-    """Gracefully closes connections on shutdown."""
+    # --- Code to run on shutdown ---
+    logging.info("Application shutdown: Closing Kafka connection...")
+    producer = kafka_clients.get("producer")
     if producer:
         producer.close()
         logging.info("Kafka producer connection closed.")
-    if admin_client:
-        admin_client.close()
-        logging.info("Kafka admin client connection closed.")
+
+# --- FastAPI App Initialization ---
+# The lifespan manager is passed directly to the FastAPI constructor.
+app = FastAPI(
+    title="Payment API", 
+    description="An API to simulate and produce transaction events to Redpanda/Kafka.",
+    lifespan=lifespan
+)
+
+class Transaction(BaseModel):
+    transaction_id: str = Field(..., description="Unique identifier for the transaction")
+    user_id: str = Field(..., description="Identifier for the user")
+    card_number: str = Field(..., description="Masked card number")
+    amount: float = Field(..., gt=0, description="Transaction amount, must be positive")
+    timestamp: str = Field(..., description="Timestamp of the transaction in ISO 8601 format")
+    merchant_id: str = Field(..., description="Identifier for the merchant")
+    location: str = Field(..., description="Location of the transaction")
 
 @app.post("/transaction", status_code=202)
 def create_transaction(transaction: Transaction):
+    producer = kafka_clients.get("producer")
     if not producer:
         raise HTTPException(status_code=503, detail="Service Unavailable: Kafka producer is not connected.")
     try:
-        transaction_dict = transaction.dict()
+        # Use .model_dump() instead of the deprecated .dict()
+        transaction_dict = transaction.model_dump()
         future = producer.send(TRANSACTIONS_TOPIC, value=transaction_dict)
+        # Block for a result to ensure the message is sent before returning a success response
         record_metadata = future.get(timeout=10)
         logging.info(f"Successfully produced transaction {transaction.transaction_id} to topic '{record_metadata.topic}'")
         return {"status": "accepted", "transaction_id": transaction.transaction_id}
@@ -121,5 +128,6 @@ def create_transaction(transaction: Transaction):
 
 @app.get("/health")
 def health_check():
+    producer = kafka_clients.get("producer")
     kafka_status = "connected" if producer and producer.bootstrap_connected() else "disconnected"
     return {"api_status": "ok", "kafka_status": kafka_status}

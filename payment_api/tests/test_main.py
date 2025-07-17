@@ -9,19 +9,27 @@ from payment_api.main import app
 # Mark all tests in this file as asynchronous
 pytestmark = pytest.mark.asyncio
 
-# This is a more robust fixture that mocks external services before the app starts
 @pytest.fixture
 async def api_client(mocker):
-    # 1. Patch the clients that try to make external connections during startup
+    """
+    A robust pytest fixture that:
+    1. Mocks external services (Kafka) before the app starts.
+    2. Correctly handles the FastAPI lifespan events for startup/shutdown.
+    3. Provides a test client to make requests.
+    """
+    # Patch the clients that try to make external connections during startup.
+    # We mock them at the source where they are imported in main.py.
     mocker.patch("payment_api.main.KafkaAdminClient", autospec=True)
-    mocker.patch("payment_api.main.KafkaProducer", autospec=True)
+    producer_mock = mocker.patch("payment_api.main.KafkaProducer", autospec=True)
 
-    # 2. Use the app's own lifespan context manager
-    # This is the modern and correct way to handle startup/shutdown in tests
+    # Use the app's own lifespan context manager. This is the modern and
+    # correct way to handle startup/shutdown events during testing.
     async with app.router.lifespan_context(app):
-        # 3. Now that startup has run (with mocked clients), create the test client
+        # Now that startup has run (with mocked clients), create the test client.
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # Attach the producer mock to the client so we can access it in tests
+            client.producer_mock = producer_mock
             yield client
 
 # --- Test Cases ---
@@ -37,7 +45,6 @@ async def test_health_check(api_client: AsyncClient):
 async def test_create_successful_transaction(api_client: AsyncClient):
     """
     Tests the "happy path" for the /transaction endpoint.
-    The producer is already mocked by the fixture.
     """
     # Define a valid transaction payload
     valid_transaction = {
@@ -55,19 +62,23 @@ async def test_create_successful_transaction(api_client: AsyncClient):
     # Assert that the API accepted the transaction
     assert response.status_code == 202
     assert response.json()["status"] == "accepted"
-    # We can no longer assert that 'send' was called because the entire
-    # producer is now a mock object, but this test still validates the API layer.
+
+    # Get the mock instance that was created during startup and assert that
+    # its 'send' method was called exactly once.
+    producer_instance = api_client.producer_mock.return_value
+    producer_instance.send.assert_called_once()
+
 
 async def test_create_failed_transaction_invalid_amount(api_client: AsyncClient):
     """
-    Tests the "sad path" for the /transaction endpoint.
+    Tests the "sad path" where a request with invalid data is rejected.
     """
     # Define an invalid transaction payload
     invalid_transaction = {
         "transaction_id": "txn_test_fail_002",
         "user_id": "user-test-123",
         "card_number": "4242-4242-4242-4242",
-        "amount": -50.00,
+        "amount": -50.00,  # Invalid amount
         "timestamp": "2025-07-18T12:01:00Z",
         "merchant_id": "merchant_test",
         "location": "Test City"
@@ -75,4 +86,5 @@ async def test_create_failed_transaction_invalid_amount(api_client: AsyncClient)
 
     response = await api_client.post("/transaction", json=invalid_transaction)
 
+    # FastAPI automatically returns a 422 Unprocessable Entity for Pydantic validation errors.
     assert response.status_code == 422
