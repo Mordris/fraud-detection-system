@@ -1,6 +1,6 @@
 # requirements-test.txt
 pytest
-httpx==0.25.2 # Pin httpx to a version compatible with fastapi's dependencies
+httpx==0.25.2
 pytest-mock
 pytest-asyncio
-httpx-ws==0.5.0 # Pin httpx-ws
+websockets # Add this for the TestClient
