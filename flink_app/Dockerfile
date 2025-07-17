@@ -1,4 +1,5 @@
 # flink_app/Dockerfile
+
 # Start from the official Flink image as the base
 FROM apache/flink:1.18.1-scala_2.12-java11
 
