@@ -1,11 +1,14 @@
 # alert_monitor/Dockerfile
-FROM python:3.10.13-slim-bullseye
+
+# Use a modern, more secure base image
+FROM python:3.10-slim-bookworm
 
 WORKDIR /app
 
 COPY requirements.txt .
 
-RUN pip install --no-cache-dir --upgrade pip && \
+# Upgrade pip and setuptools first, then install requirements
+RUN pip install --no-cache-dir --upgrade pip setuptools && \
     pip install --no-cache-dir -r requirements.txt
 
 COPY . .
