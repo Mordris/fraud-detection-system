@@ -9,7 +9,6 @@ from datetime import datetime
 # --- PyFlink Core Imports ---
 # Import essential classes from PyFlink for building the data stream.
 from pyflink.common import Types, WatermarkStrategy, Row
-from pyflink.common.typeinfo import RowTypeInfo
 from pyflink.datastream import StreamExecutionEnvironment
 from pyflink.datastream.connectors.kafka import KafkaSource, KafkaOffsetsInitializer
 from pyflink.datastream.formats.json import JsonRowDeserializationSchema
