@@ -82,6 +82,7 @@ jobs:
         with:
           repository: Mordris/fraud-detection-system-config
           token: ${{ secrets.CONFIG_REPO_PAT }}
+          ref: develop
       - name: Install Kustomize
         run: |
           curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"  | bash

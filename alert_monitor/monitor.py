@@ -1,5 +1,4 @@
 # alert_monitor/monitor.py
-
 # --- Standard Library Imports ---
 import os
 import json
