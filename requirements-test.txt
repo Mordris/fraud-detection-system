@@ -3,3 +3,4 @@ pytest
 httpx
 pytest-mock
 pytest-asyncio
+httpx-ws
