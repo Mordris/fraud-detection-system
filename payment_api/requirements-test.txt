@@ -1,0 +1,4 @@
+# payment_api/requirements-test.txt
+pytest
+httpx
+pytest-mock
