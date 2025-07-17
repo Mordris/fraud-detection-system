@@ -10,7 +10,7 @@ from payment_api.main import app
 pytestmark = pytest.mark.asyncio
 
 # This is a more robust fixture that mocks external services before the app starts
-@pytest.fixture(scope="session")
+@pytest.fixture
 async def api_client(mocker):
     # 1. Patch the clients that try to make external connections during startup
     mocker.patch("payment_api.main.KafkaAdminClient", autospec=True)
